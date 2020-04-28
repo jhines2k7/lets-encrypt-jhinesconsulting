@@ -1,0 +1,89 @@
+# install docker-compose
+curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+docker-compose --version
+
+mkdir -p /docker/letsencrypt-docker-nginx/src/letsencrypt/letsencrypt-site
+vim /docker/letsencrypt-docker-nginx/src/letsencrypt/docker-compose.yml
+
+vim /docker/letsencrypt-docker-nginx/src/letsencrypt/nginx.conf
+
+vim /docker/letsencrypt-docker-nginx/src/letsencrypt/letsencrypt-site/index.html
+
+cd /docker/letsencrypt-docker-nginx/src/letsencrypt
+docker-compose up -d
+
+# lets-encrypt staging command for www.jhinesconsulting.com
+docker run -it --rm \
+-v /docker-volumes/etc/letsencrypt:/etc/letsencrypt \
+-v /docker-volumes/var/lib/letsencrypt:/var/lib/letsencrypt \
+-v /docker/letsencrypt-docker-nginx/src/letsencrypt/letsencrypt-site:/data/letsencrypt \
+-v "/docker-volumes/var/log/letsencrypt:/var/log/letsencrypt" \
+certbot/certbot \
+certonly --webroot \
+--register-unsafely-without-email --agree-tos \
+--webroot-path=/data/letsencrypt \
+--staging \
+-d jhinesconsulting.com -d www.jhinesconsulting.com
+
+#=====================================================
+# certificate info
+#=====================================================
+docker run --rm -it --name certbot \
+-v /docker-volumes/etc/letsencrypt:/etc/letsencrypt \
+-v /docker-volumes/var/lib/letsencrypt:/var/lib/letsencrypt \
+-v /docker/letsencrypt-docker-nginx/src/letsencrypt/letsencrypt-site:/data/letsencrypt \
+certbot/certbot \
+--staging \
+certificates
+
+# clean up staging artifacts
+rm -rf /docker-volumes/
+
+# live cert command jhinesconsulting.com
+docker run -it --rm \
+-v /docker-volumes/etc/letsencrypt:/etc/letsencrypt \
+-v /docker-volumes/var/lib/letsencrypt:/var/lib/letsencrypt \
+-v /docker/letsencrypt-docker-nginx/src/letsencrypt/letsencrypt-site:/data/letsencrypt \
+-v "/docker-volumes/var/log/letsencrypt:/var/log/letsencrypt" \
+certbot/certbot \
+certonly --webroot \
+--email james@jhinesconsulting.com --agree-tos --no-eff-email \
+--webroot-path=/data/letsencrypt \
+-d jhinesconsulting.com -d www.jhinesconsulting.com
+
+cd /docker/letsencrypt-docker-nginx/src/letsencrypt
+docker-compose down
+
+mkdir -p /docker/letsencrypt-docker-nginx/src/production/production-site
+mkdir -p /docker/letsencrypt-docker-nginx/src/production/dh-param
+
+vim /docker/letsencrypt-docker-nginx/src/production/docker-compose.yml
+
+vim /docker/letsencrypt-docker-nginx/src/production/production.conf
+
+openssl dhparam -out /docker/letsencrypt-docker-nginx/src/production/dh-param/dhparam-2048.pem 2048
+mkdir /dh-param
+cp /docker/letsencrypt-docker-nginx/src/production/dh-param/dhparam-2048.pem /dh-param
+
+cp /docker/letsencrypt-docker-nginx/src/letsencrypt/letsencrypt-site/index.html /docker/letsencrypt-docker-nginx/src/production/production-site/
+
+cd /docker/letsencrypt-docker-nginx/src/production
+docker-compose up -d
+
+#=====================================================
+# cert renewal command (manual)
+#=====================================================
+docker run -it --rm \
+--name certbot \
+-v "/docker-volumes/etc/letsencrypt:/etc/letsencrypt" \
+-v "/docker-volumes/var/lib/letsencrypt:/var/lib/letsencrypt" \
+-v "/docker/letsencrypt-docker-nginx/src/production/production-site:/data/letsencrypt" \
+-v "/docker-volumes/var/log/letsencrypt:/var/log/letsencrypt" \
+certbot/certbot renew --webroot \
+-w /data/letsencrypt
+
+#=====================================================
+# cert renewal command (cron)
+#=====================================================
+0 23 * * * docker run --rm --name certbot -v "/docker-volumes/etc/letsencrypt:/etc/letsencrypt" -v "/docker-volumes/var/lib/letsencrypt:/var/lib/letsencrypt" -v "/docker/letsencrypt-docker-nginx/src/letsencrypt/letsencrypt-site:/data/letsencrypt" -v "/docker-volumes/var/log/letsencrypt:/var/log/letsencrypt" certbot/certbot renew --webroot -w /data/letsencrypt --quiet && docker kill --signal=HUP production-nginx-container
